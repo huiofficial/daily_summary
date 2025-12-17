@@ -1,0 +1,31 @@
+# Daily Summary Configuration File
+# Copy this file to daily_summary_config.toml and customize as needed
+
+# Default time range: 'today', 'yesterday', or 'lastweek'
+default_time_range = "today"
+
+# Default output directory (will be created if it doesn't exist)
+output_dir = "."
+
+# Default output format: 'excel', 'csv', or 'json'
+output_format = "excel"
+
+# Default author filter (leave empty or null for no filter)
+author = null
+
+# Ollama model for AI summaries
+ollama_model = "qwen3:0.6b"
+
+# Enable AI summary generation by default
+enable_ai_summary = true
+
+# Retry configuration for git commands
+retry_attempts = 3
+retry_delay = 1.0
+
+# Commit message template
+# Available placeholders: {repository}, {author}, {email}, {date}, {commit_hash}, {message}
+commit_message_template = "{repository} - {author} - {message}"
+
+# Incremental state file location
+incremental_state_file = ".daily_summary_state.json"

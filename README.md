@@ -42,8 +42,9 @@
 
 **后端**
 - Python 3.7+
-- pandas：数据处理与 Excel 生成
+- pandas：数据处理与报告生成（支持 Excel、CSV、JSON）
 - openpyxl：Excel 文件操作
+- toml：配置文件解析
 - ollama（可选）：本地 AI 模型调用
 
 **工具**
@@ -92,6 +93,28 @@ python daily_summary.py /path/to/work/directory --today
 ./daily_summary.sh /path/to/work/directory --today
 ```
 
+### 配置文件（可选）
+
+工具支持通过配置文件设置默认选项。创建 `daily_summary_config.toml` 文件（参考 `daily_summary_config.toml.example`）：
+
+```toml
+default_time_range = "today"
+output_dir = "."
+output_format = "excel"
+author = null
+ollama_model = "qwen3:0.6b"
+enable_ai_summary = true
+retry_attempts = 3
+retry_delay = 1.0
+commit_message_template = "{repository} - {author} - {message}"
+incremental_state_file = ".daily_summary_state.json"
+```
+
+配置文件搜索顺序：
+1. 当前工作目录
+2. 脚本所在目录
+3. 用户主目录
+
 ## 使用示例
 
 ### 时间范围查询
@@ -128,20 +151,78 @@ python daily_summary.py /path/to/work/dir --today --author "Your Name"
 python daily_summary.py /path/to/work/dir --today -o custom_report.xlsx
 ```
 
+### 导出格式
+
+**Excel 格式（默认）：**
+```bash
+python daily_summary.py /path/to/work/dir --today -o report.xlsx
+# 或
+python daily_summary.py /path/to/work/dir --today --format excel
+```
+
+**CSV 格式：**
+```bash
+python daily_summary.py /path/to/work/dir --today -o report.csv
+# 或
+python daily_summary.py /path/to/work/dir --today --format csv
+```
+
+**JSON 格式：**
+```bash
+python daily_summary.py /path/to/work/dir --today -o report.json
+# 或
+python daily_summary.py /path/to/work/dir --today --format json
+```
+
+### 配置文件
+
+**使用配置文件：**
+```bash
+# 创建配置文件 daily_summary_config.toml（参考 daily_summary_config.toml.example）
+python daily_summary.py /path/to/work/dir --config daily_summary_config.toml
+```
+
+配置文件支持设置默认时间范围、输出目录、输出格式、作者过滤等选项。
+
+### 增量更新
+
+**启用增量更新模式（只处理新提交）：**
+```bash
+python daily_summary.py /path/to/work/dir --today --incremental
+```
+
+增量模式会记录上次处理的最后一个提交，下次运行时只处理新提交，提高处理效率。
+
+### 提交信息模板化
+
+**使用自定义模板格式化提交信息：**
+```bash
+python daily_summary.py /path/to/work/dir --today --template "{repository}[{author}]: {message}"
+```
+
+可用占位符：`{repository}`, `{author}`, `{email}`, `{date}`, `{commit_hash}`, `{message}`
+
 ### 命令行参数
 
-- `work_dir`（必需）：包含 Git 仓库的目录路径
+- `work_dir`：包含 Git 仓库的目录路径（可通过配置文件设置）
 - `--today`：汇总今日提交
 - `--yesterday`：汇总昨日提交
 - `--lastweek`：汇总最近一周提交（7天）
 - `--start YYYY-MM-DD`：自定义范围的起始日期
 - `--end YYYY-MM-DD`：自定义范围的结束日期
-- `--output, -o`：输出 Excel 文件路径（默认自动生成）
+- `--output, -o`：输出文件路径（默认自动生成）
+- `--format, -f`：输出格式（excel、csv、json、auto），默认 auto（根据文件扩展名自动检测）
 - `--author`：按作者姓名或邮箱过滤提交
+- `--config, -c`：配置文件路径
+- `--incremental`：启用增量更新模式（只处理新提交）
+- `--template`：提交信息模板（使用 {field} 占位符）
+- `--no-ai-summary`：禁用 AI 总结生成
 
 ## 输出说明
 
-工具生成包含以下工作表的 Excel 文件：
+### Excel 格式（默认）
+
+生成包含以下工作表的 Excel 文件：
 
 1. **Commits**：提交详情
    - 仓库名称
@@ -166,6 +247,21 @@ python daily_summary.py /path/to/work/dir --today -o custom_report.xlsx
    - 各仓库的 AI 生成工作总结
    - 基于提交信息自动生成
 
+### CSV 格式
+
+生成以下 CSV 文件：
+- `report.csv`：提交详情
+- `report.summary.csv`：汇总统计
+- `report.summaries.csv`：仓库总结（如果启用 AI 总结）
+
+### JSON 格式
+
+生成包含以下结构的 JSON 文件：
+- `period`：查询时间段
+- `summary`：汇总统计数据对象
+- `commits`：提交详情数组
+- `repository_summaries`：仓库总结对象（如果启用 AI 总结）
+
 **注意事项：**
 - 工具会跳过隐藏目录（以 `.` 开头）和常见非仓库目录（如 `node_modules`、`venv`、`__pycache__`）
 - 如未指定时间选项，默认查询今日提交
@@ -180,11 +276,11 @@ python daily_summary.py /path/to/work/dir --today -o custom_report.xlsx
 - [x] Excel 报告生成
 - [x] 提交统计信息
 - [x] Ollama AI 总结集成
-- [ ] 配置文件支持（默认时间范围、输出目录等）
-- [ ] 导出格式扩展（CSV、JSON）
-- [ ] 增量更新支持
-- [ ] 提交信息模板化处理
-- [ ] 错误处理与重试机制优化
+- [x] 配置文件支持（默认时间范围、输出目录等）
+- [x] 导出格式扩展（CSV、JSON）
+- [x] 增量更新支持
+- [x] 提交信息模板化处理
+- [x] 错误处理与重试机制优化
 
 ## 文档说明
 
