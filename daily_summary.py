@@ -347,12 +347,16 @@ def summarize_repo_commits(repo_name: str, commit_messages: List[str], model: st
             messages_text += f"\n... (还有 {len(commit_messages) - 50} 条提交信息未显示)"
         
         # Create prompt for summarization
-        prompt = f"""请总结以下项目 '{repo_name}' 的提交信息，生成一个简洁的工作总结（用中文）：
+        prompt = f"""请客观地提取并整理以下项目 '{repo_name}' 的提交信息内容（用中文）：
 
 提交信息列表：
 {messages_text}
 
-请用2-5句话总结这个项目在这个时间段的主要工作内容，要求简洁明了，突出主要功能和改进点。"""
+要求：
+1. 只提取提交信息中的实际工作内容
+2. 客观描述做了什么，不使用评价性语言
+3. 用2-5句话简洁地整理主要内容
+4. 直接陈述事实，不添加"改进"、"优化"、"完善"等评价性词汇"""
 
         # Call ollama API
         response = ollama.chat(
