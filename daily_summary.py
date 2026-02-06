@@ -10,6 +10,7 @@ import subprocess
 import argparse
 import json
 import time
+import re
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional, Callable
@@ -218,9 +219,10 @@ def get_commits(repo_path: str, start_date: datetime, end_date: datetime, author
         start_str = start_date.strftime(date_format)
         end_str = (end_date + timedelta(days=1)).strftime(date_format)  # Include end date
         
-        # Build git log command
+        # Build git log command (--no-merges: exclude merge commits, count only user's own code)
         cmd = [
             'git', 'log',
+            '--no-merges',
             '--since', start_str,
             '--until', end_str,
             '--pretty=format:%H|%an|%ae|%ad|%s',
@@ -329,51 +331,56 @@ def get_repo_info(repo_path: str) -> Dict:
     return info
 
 
-def summarize_repo_commits(repo_name: str, commit_messages: List[str], model: str = 'qwen3:0.6b') -> str:
-    """Use ollama to summarize commit messages for a repository."""
-    if not OLLAMA_AVAILABLE:
-        return "Ollama not available. Install with: pip install ollama"
+def remove_commit_prefix(message: str) -> str:
+    """Remove commit message prefixes like feat:, chore:, refactor:, etc."""
+    if not message or not message.strip():
+        return message
     
+    # Common commit message prefixes
+    # Pattern matches: "type:", "type(scope):", "type!", "type(scope)!"
+    # Examples: "feat:", "feat(api):", "fix!", "chore(deps):"
+    pattern = r'^(feat|fix|chore|refactor|docs|style|test|perf|ci|build|revert|hotfix)(\([^)]+\))?(!)?:\s*'
+    
+    # Remove the prefix if found
+    cleaned = re.sub(pattern, '', message, flags=re.IGNORECASE)
+    
+    # Return cleaned message, or original if no prefix was found
+    return cleaned.strip() if cleaned.strip() else message.strip()
+
+
+def get_commit_type(message: str) -> Optional[str]:
+    """Extract Conventional Commits type from message (feat, fix, chore, etc.). Returns None if no match."""
+    if not message or not message.strip():
+        return None
+    pattern = r'^(feat|fix|chore|refactor|docs|style|test|perf|ci|build|revert|hotfix)(\([^)]+\))?(!)?:\s*'
+    m = re.match(pattern, message.strip(), flags=re.IGNORECASE)
+    return m.group(1).lower() if m else None
+
+
+def summarize_repo_commits(repo_name: str, commit_messages: List[str], model: str = 'qwen3:0.6b') -> str:
+    """Extract commit messages without prefixes and combine them."""
     if not commit_messages:
         return "No commits to summarize."
     
     try:
-        # Combine commit messages (limit to avoid token limit)
-        # Take at most the first 50 commit messages to avoid overwhelming the model
-        messages_to_summarize = commit_messages[:50]
-        messages_text = "\n".join([f"{i+1}. {msg}" for i, msg in enumerate(messages_to_summarize)])
+        # Remove prefixes from each commit message
+        cleaned_messages = [remove_commit_prefix(msg) for msg in commit_messages]
         
-        if len(commit_messages) > 50:
-            messages_text += f"\n... (还有 {len(commit_messages) - 50} 条提交信息未显示)"
+        # Filter out empty messages
+        cleaned_messages = [msg for msg in cleaned_messages if msg.strip()]
         
-        # Create prompt for summarization
-        prompt = f"""请客观地提取并整理以下项目 '{repo_name}' 的提交信息内容（用中文）：
-
-提交信息列表：
-{messages_text}
-
-要求：
-1. 只提取提交信息中的实际工作内容
-2. 客观描述做了什么，不使用评价性语言
-3. 用2-5句话简洁地整理主要内容
-4. 直接陈述事实，不添加"改进"、"优化"、"完善"等评价性词汇"""
-
-        # Call ollama API
-        response = ollama.chat(
-            model=model,
-            messages=[
-                {
-                    'role': 'user',
-                    'content': prompt
-                }
-            ]
-        )
+        if not cleaned_messages:
+            return "No valid commit messages found."
         
-        summary = response['message']['content'].strip()
+        # Combine all cleaned commit messages
+        # Each message on a new line, numbered
+        summary_lines = [f"{i+1}. {msg}" for i, msg in enumerate(cleaned_messages)]
+        summary = "\n".join(summary_lines)
+        
         return summary
     
     except Exception as e:
-        error_msg = f"Error generating summary: {str(e)}"
+        error_msg = f"Error processing commit messages: {str(e)}"
         print(f"    ⚠️  {error_msg}")
         return error_msg
 
@@ -394,8 +401,8 @@ def generate_report(commits: List[Dict], output_file: str, period: str,
     available_columns = [col for col in columns_order if col in df.columns]
     df = df[available_columns]
     
-    # Sort by date (newest first)
-    df = df.sort_values('date', ascending=False)
+    # Sort by date (oldest first)
+    df = df.sort_values('date', ascending=True)
     
     # Determine output format from file extension if not specified
     if output_format == 'auto':
@@ -490,7 +497,7 @@ def generate_report(commits: List[Dict], output_file: str, period: str,
             print(f"\nThe Excel file contains the following sheets:")
             print(f"  1. Commits - Detailed commit information")
             print(f"  2. Summary - Aggregated statistics")
-            print(f"  3. Repository Summaries - AI-generated summaries for each repository")
+            print(f"  3. Repository Summaries - Commit messages without prefixes for each repository")
         print(f"{'='*70}\n")
     
     elif output_format == 'csv':
@@ -725,29 +732,25 @@ Examples:
             incremental_state[repo_name]['last_commit_hash'] = commits[0].get('full_hash', commits[0].get('commit_hash'))
             incremental_state[repo_name]['last_update'] = datetime.now().isoformat()
     
-    # Generate summaries for each repository using ollama
+    # Generate summaries for each repository by extracting commit messages without prefixes
     repo_summaries = {}
     enable_ai = config.get('enable_ai_summary', True) and not args.no_ai_summary
-    if enable_ai and OLLAMA_AVAILABLE:
-        model = config.get('ollama_model', 'qwen3:0.6b')
+    if enable_ai:
         print("\n" + "="*70)
-        print(f"Generating repository summaries using ollama ({model})...")
+        print("Generating repository summaries (extracting commit messages without prefixes)...")
         print("="*70)
         for repo_name, commits in repo_commits_map.items():
             if commits:
                 print(f"\n[{repo_name}]")
                 print(f"  Commits: {len(commits)}")
                 commit_messages = [commit.get('message', '') for commit in commits]
-                print(f"  Generating summary...")
-                summary = summarize_repo_commits(repo_name, commit_messages, model)
+                print(f"  Processing commit messages...")
+                summary = summarize_repo_commits(repo_name, commit_messages)
                 repo_summaries[repo_name] = summary
-                print(f"  Summary: {summary}")
+                print(f"  Summary generated: {len(summary.split(chr(10)))} lines")
         print("\n" + "="*70)
         print("Summary generation completed.")
         print("="*70 + "\n")
-    elif enable_ai:
-        print("\nWarning: Ollama not available. Skipping repository summaries.")
-        print("Install ollama: pip install ollama")
     
     # Save incremental state if enabled
     if args.incremental:

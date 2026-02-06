@@ -29,6 +29,8 @@
 
 适用于需要定期汇总多个项目工作成果的场景，如日报、周报生成，项目进度追踪等。
 
+**work_summary**：按用户汇总参与情况，输出每个用户在各项目的提交数、代码行贡献（新增/删除/净增）及功能点数量（`feat` 类型提交数），便于工作汇报与按用户统计。
+
 ## 核心特性
 
 - 递归扫描目录下的所有 Git 仓库
@@ -37,6 +39,7 @@
 - 生成包含提交详情的 Excel 报告
 - 统计文件变更、代码增减行数
 - 可选使用 Ollama 生成仓库级别的工作总结（基于提交信息）
+- **work_summary**：按用户统计参与项目、每项目代码贡献行数及功能点（feat 提交数）
 
 ## 技术栈
 
@@ -86,11 +89,14 @@ ollama serve
 ### 最小示例
 
 ```bash
-# 汇总今日提交
+# 汇总今日提交（日报）
 python daily_summary.py /path/to/work/directory --today
 
 # 或使用 Shell 包装脚本
 ./daily_summary.sh /path/to/work/directory --today
+
+# 工作汇总：按项目统计参与项目、代码行数、功能点
+python work_summary.py /path/to/work/directory --today
 ```
 
 ### 配置文件（可选）
@@ -268,6 +274,31 @@ python daily_summary.py /path/to/work/dir --today --template "{repository}[{auth
 - 如未指定输出文件，将按日期自动生成文件名
 - 若 Ollama 不可用，工具将跳过仓库总结，仍会生成提交报告
 - AI 总结生成时间取决于仓库数量和提交数量
+
+### Work Summary（工作汇总）
+
+`work_summary.py` 在相同时间范围内，**按用户（以邮箱区分）**统计参与情况：每个邮箱参与了哪些项目、每个项目贡献了多少行代码、增加了多少功能点。
+
+**功能点**：统计 commit message 符合 Conventional Commits 中 **feat** 类型的提交数量（如 `feat: 新功能`、`feat(api): 接口`）。可选 `--fix-as-feature` 将 `fix` 类型也计入功能点。
+
+**用法示例：**
+```bash
+# 今日
+python work_summary.py /path/to/work/dir --today
+
+# 最近一周
+python work_summary.py /path/to/work/dir --lastweek
+
+# 自定义日期并指定输出
+python work_summary.py /path/to/work/dir --start 2024-01-01 --end 2024-01-07 -o work_summary.xlsx
+```
+
+**输出（Excel）：**
+- **By User & Project**：邮箱、项目、提交数、新增行数、删除行数、净增行数、功能点数量、**commits**（该用户在该项目下的每条 commit：短 hash、日期、message，多行展示）
+- **By User**：按邮箱汇总：邮箱、参与项目数、总提交数、总新增/删除/净增行、总功能点数
+- **Summary**：统计周期、用户数（按邮箱）、项目数、总提交数、总新增/删除/净增行、总功能点数
+
+支持与 daily_summary 相同的配置（`work_dir`、`author`、`output_dir`、`output_format`、时间范围默认值等），输出格式支持 excel、csv、json，默认文件名为 `work_summary_YYYYMMDD.xlsx`。**默认仅统计项目名以 `zgzl` 开头的仓库**；可在配置中设置 `work_summary_project_prefix` 或使用 `--project-prefix` 修改前缀，使用 `--project-prefix ""` 可统计全部项目。
 
 ## Roadmap
 
